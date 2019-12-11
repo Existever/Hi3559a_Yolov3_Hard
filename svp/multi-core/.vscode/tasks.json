@@ -1,0 +1,20 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "my_cmake_compile",      // 任务名称，与launch.json的preLaunchTask相对应
+            "type": "shell",
+            "command": "bash",           // 要使用的编译器，C++用clang++；
+            "args": [
+               "./compile.sh"
+            ],  
+            "type": "process", // process是vsc把预定义变量和转义解析后直接全部传给command；shell相当于先打开shell再输入命令，所以args还会经过shell再解析一遍
+            "group": {
+                "kind": "build",
+                "isDefault": true // 不为true时ctrl shift B就要手动选择了
+            }
+
+ 
+        }
+    ]
+}

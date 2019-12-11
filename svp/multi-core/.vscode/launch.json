@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "(gdb) Launch",                 // 配置名称，将会在启动配置的下拉菜单中显示
+            "type": "cppdbg",                       // 配置类型，cppdbg对应cpptools提供的调试功能；可以认为此处只能是cppdbg
+            "request": "launch",                     //请求配置类型，可以为launch（启动）或attach（附加
+            "program": "${workspaceFolder}/nnie/sample_nnie_main.o",//"${fileDirname}/${fileBasenameNoExtension}.exe", // 将要进行调试的程序的路径
+            "args": [],                                  // 程序调试时传递给程序的命令行参数，一般设为空即可
+            "stopAtEntry": true,                        // 设为true时程序将暂停在程序入口处，相当于在main上打断点
+            "cwd": "${workspaceFolder}",                // 调试程序时的工作目录，此为工作区文件夹；改成${fileDirname}可变为文件所在目录
+            "environment": [],                          // 环境变量
+            "externalConsole": false,                   // 为true时使用单独的cmd窗口，与其它IDE一致；18年10月后设为false可调用VSC内置终端
+            "MIMode": "gdb",                            // 如果不设为neverOpen，调试时会跳到“调试控制台”选项卡，你应该不需要对gdb手动输命令吧？
+            "preLaunchTask": "my_cmake_compile",                   // 调试会话开始前执行的任务，一般为编译程序。与tasks.json的label相对应
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}

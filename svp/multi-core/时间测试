@@ -1,0 +1,16 @@
+---------Timing start for [SAMPLE_COMM_SVP_NNIE_LoadModel]
+---------Timing Consumed [8471.089] ms
+[Level]:Info,[Func]:SAMPLE_SVP_NNIE_Yolov3 [Line]:2998 [Info]:Yolov3 parameter initialization!
+
+---------Timing start for [SAMPLE_SVP_NNIE_Yolov3_ParamInit]
+---------Timing Consumed [ 5.436] ms
+[Level]:Info,[Func]:SAMPLE_SVP_NNIE_Yolov3 [Line]:3017 [Info]:Yolov3 start!
+
+---------Timing start for [SAMPLE_SVP_NNIE_FillSrcData]
+---------Timing Consumed [ 3.784] ms
+
+---------Timing start for [SAMPLE_SVP_NNIE_Forward]
+---------Timing Consumed [65.304] ms
+
+---------Timing start for [SAMPLE_SVP_NNIE_Yolov3_GetResult]
+---------Timing Consumed [74.290] ms
