@@ -68,3 +68,19 @@ svp/multi-core/ive/data/
 svp/multi-core/hirt/resource/
 
 svp/multi-core/dsp/dsp_bin/
+
+*.o
+
+svp/multi-core/nnie/sample_nnie_main
+
+svp/multi-core/nnie/out/canny.jpg
+
+*.modelgroup
+
+svp/multi-core/hirt/sample_runtime_release
+
+*.so
+
+svp/multi-core/ive/
+
+svp/multi-core/dsp/

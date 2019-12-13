@@ -2028,7 +2028,8 @@ static HI_S32 SVP_NNIE_Yolo_NonRecursiveArgQuickSort(HI_S32* ps32Array,
 *****************************************************************************/
 static HI_S32 SVP_NNIE_Yolov1_Nms(HI_S32* ps32Score, HI_FLOAT* pf32Bbox,
     HI_U32 u32BboxNum,HI_U32 u32ConfThresh,HI_U32 u32NmsThresh,HI_U32* pu32TmpBuf)
-{
+{
+
     HI_U32 i = 0, j = 0;
     HI_U32 u32Idx1 = 0, u32Idx2 = 0;
     SAMPLE_SVP_NNIE_YOLOV1_SCORE_S *pstScore = (SAMPLE_SVP_NNIE_YOLOV1_SCORE_S*)pu32TmpBuf;
@@ -3585,6 +3586,9 @@ HI_S32 SAMPLE_SVP_NNIE_Yolov3_GetResult(SAMPLE_SVP_NNIE_PARAM_S*pstNnieParam,
         (HI_S32*)pstSoftwareParam->stDstRoi.u64VirAddr,
         (HI_S32*)pstSoftwareParam->stClassRoiNum.u64VirAddr);
 }
+
+
+
 
 #ifdef __cplusplus
 }

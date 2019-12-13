@@ -26,6 +26,7 @@ linux:
 	@cd pciv; make slave
 
 linux_svp:
+	#使用cfg.mak.multicore 的参数配置编译环境
 	cp ../cfg.mak.multicore ../cfg.mak
 	@cd svp/multi-core; make
 

@@ -1,13 +1,15 @@
 
 # target source
 OBJS  := $(SRCS:%.c=%.o)
+OBJS  := $(OBJS:%.cpp=%.o)
+CXXFLAGS=$(CFLAGS)
 
 .PHONY : clean all
 
 all: $(TARGET)
 
 $(TARGET):$(COMM_OBJ) $(OBJS)	
-	@$(CC) $(CFLAGS) -lpthread -lm -o -g -Wall $@ $^ $(MPI_LIBS) $(SENSOR_LIBS) $(AUDIO_LIBA) $(REL_LIB)/libsecurec.a
+	@$(CXX) $(CFLAGS) -lpthread -lm -o $@ $^ $(MPI_LIBS) $(SENSOR_LIBS) $(AUDIO_LIBA) $(REL_LIB)/libsecurec.a $(OPENCV_INCLUDE) $(OPENCV_LIB_DIR) $(OPENCV_LIBS)
 
 clean:
 	@rm -f $(TARGET)

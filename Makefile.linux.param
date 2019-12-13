@@ -1,0 +1,55 @@
+
+# use C01 to indicate uclibc, C02 to  indicate glibc, C00 to indicate FPGA.
+ifeq ($(FPGA), y)
+	export CVER?=.C$(DBG_FLAG)0
+else ifeq ($(LIBC),glibc)
+    export CVER?=.C$(DBG_FLAG)2
+else
+    export CVER?=.C$(DBG_FLAG)1
+endif
+
+ifeq ($(HIARCH), $(filter $(HIARCH),hi3519av100 hi3516cv500))
+    ifeq ($(ARM_ARCH), smp)
+	POSTFIX:=-smp
+    else
+	POSTFIX:=
+    endif
+endif
+
+##############################################################################
+# Allocated the kernel position
+ifeq ($(MPP_BUILD), y)
+    ifeq ($(HIARCH),$(filter $(HIARCH), hi3559av100es hi3559av100))
+		export KERNEL_ROOT?=$(HIWORK_PATH)/osdrv$(HIARCH)$(CVER)/opensource/kernel/$(KERNEL_NAME)_$(CPU_TYPE)
+    else ifeq ($(HIARCH),$(filter $(HIARCH), hi3519av100))
+        export KERNEL_ROOT?=$(HIWORK_PATH)/osdrv$(HI_SUBARCH)$(CVER)/opensource/kernel/$(KERNEL_NAME)$(POSTFIX)
+    else
+        export KERNEL_ROOT?=$(HIWORK_PATH)/osdrv$(HIARCH)$(CVER)/opensource/kernel/$(KERNEL_NAME)$(POSTFIX)
+    endif
+else
+    ifeq ($(HIARCH),$(filter $(HIARCH), hi3559av100es hi3559av100))
+	export KERNEL_ROOT?=$(SDK_PATH)/osdrv/opensource/kernel/$(KERNEL_NAME)_$(CPU_TYPE)
+    else
+        export KERNEL_ROOT?=$(SDK_PATH)/../../osdrv/opensource/kernel/$(KERNEL_NAME)$(POSTFIX)
+    endif
+endif
+
+OSDRV_PATH:=$(KERNEL_ROOT)/../../..
+
+##############################################################################
+
+# Define cross compiler,添加c/cpp混合编译
+
+export CC:=$(CROSS)gcc
+export AR:=$(CROSS)ar
+export CXX:=$(CROSS)g++
+
+export REL_INC := $(REL_DIR)/include
+export REL_LIB := $(REL_DIR)/lib
+export REL_KO  := $(REL_DIR)/ko
+export REL_OBJ := $(REL_DIR)/obj
+export REL_INI := $(REL_DIR)/init
+
+LIBS_LD_CFLAGS += -ldl
+MPP_CFLAGS += -Wno-date-time
+DRV_CFLAGS += -Wno-date-time
