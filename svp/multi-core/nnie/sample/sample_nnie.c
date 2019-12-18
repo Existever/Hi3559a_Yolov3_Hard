@@ -21,34 +21,8 @@
 #include "sample_nnie_main.h"
 #include "sample_svp_nnie_software.h"
 #include "sample_comm_ive.h"
+#include "debug_comm.h"
 
-#include "time.h"
-#define TEST_TIME 
-float  TimeStatistic(struct timespec *start, struct timespec *end,int flag,const char* desc)
-/*
- flag 0: 开始计时
- flag 1: 结束计时 
-*/
-{
-    float t=0;        //单位ms
-    if(flag==0){  
-
-        printf("\n---------Timing start for [%s]\n",desc);
-        clock_gettime(CLOCK_REALTIME, start);  
-        *end =*start;  
-        return t;
-
-    }else
-    {
-         clock_gettime(CLOCK_REALTIME, end); // 计时
-         t=(end->tv_sec - start->tv_sec)*1000.0 + (end->tv_nsec - start->tv_nsec) / 1000000.0; 
-         printf("---------Timing Consumed [%6.3f] ms\n",t);
-         return t;
-    } 
-
-    return 0;
-
-}
 
 
 /*cnn para*/
@@ -85,9 +59,9 @@ static SAMPLE_SVP_NNIE_MODEL_S s_stYolov2Model = {0};
 static SAMPLE_SVP_NNIE_PARAM_S s_stYolov2NnieParam = {0};
 static SAMPLE_SVP_NNIE_YOLOV2_SOFTWARE_PARAM_S s_stYolov2SoftwareParam = {0};
 /*yolov3 para*/
-static SAMPLE_SVP_NNIE_MODEL_S s_stYolov3Model = {0};
-static SAMPLE_SVP_NNIE_PARAM_S s_stYolov3NnieParam = {0};
-static SAMPLE_SVP_NNIE_YOLOV3_SOFTWARE_PARAM_S s_stYolov3SoftwareParam = {0};
+static SAMPLE_SVP_NNIE_MODEL_S s_stYolov3Model = {0};                           //从wk文件中解读网络模型参数
+static SAMPLE_SVP_NNIE_PARAM_S s_stYolov3NnieParam = {0};                       //NNIE参数（包括配置参数、模型参数、内存分配、推理控制参数等）
+static SAMPLE_SVP_NNIE_YOLOV3_SOFTWARE_PARAM_S s_stYolov3SoftwareParam = {0};   //网络模型软件参数（超参数）
 /*lstm para*/
 static SAMPLE_SVP_NNIE_MODEL_S s_stLstmModel = {0};
 static SAMPLE_SVP_NNIE_PARAM_S s_stLstmNnieParam = {0};
@@ -99,6 +73,7 @@ static SAMPLE_SVP_NNIE_FASTERRCNN_SOFTWARE_PARAM_S s_stPvanetSoftwareParam = {0}
 
 /******************************************************************************
 * function : NNIE Forward
+执行某一段的前向传播，按照输入段和处理段索引构成段与段之间的链接关系，前向传播后及时刷新输出cache
 ******************************************************************************/
 static HI_S32 SAMPLE_SVP_NNIE_Forward(SAMPLE_SVP_NNIE_PARAM_S *pstNnieParam,
     SAMPLE_SVP_NNIE_INPUT_DATA_INDEX_S* pstInputDataIdx,
@@ -107,24 +82,29 @@ static HI_S32 SAMPLE_SVP_NNIE_Forward(SAMPLE_SVP_NNIE_PARAM_S *pstNnieParam,
     HI_S32 s32Ret = HI_SUCCESS;
     HI_U32 i = 0, j = 0;
     HI_BOOL bFinish = HI_FALSE;
-    SVP_NNIE_HANDLE hSvpNnieHandle = 0;
+    SVP_NNIE_HANDLE hSvpNnieHandle = 0;     //32位指针
     HI_U32 u32TotalStepNum = 0;
 
+    //刷新段的前向控制信息结构题中taskbuf
     SAMPLE_COMM_SVP_FlushCache(pstNnieParam->astForwardCtrl[pstProcSegIdx->u32SegIdx].stTskBuf.u64PhyAddr,
         (HI_VOID *) pstNnieParam->astForwardCtrl[pstProcSegIdx->u32SegIdx].stTskBuf.u64VirAddr,
         pstNnieParam->astForwardCtrl[pstProcSegIdx->u32SegIdx].stTskBuf.u32Size);
 
     /*set input blob according to node name*/
-    if(pstInputDataIdx->u32SegIdx != pstProcSegIdx->u32SegIdx)
+    //如果输入段标号，和要处理的段的标号不相等，说明是不同段之间的衔接
+    //则根据节点的名字来匹配，如果名字相同，则将输入节点的作为要处理节点的源节点
+    if(pstInputDataIdx->u32SegIdx != pstProcSegIdx->u32SegIdx)      
     {
-        for(i = 0; i < pstNnieParam->pstModel->astSeg[pstProcSegIdx->u32SegIdx].u16SrcNum; i++)
+        for(i = 0; i < pstNnieParam->pstModel->astSeg[pstProcSegIdx->u32SegIdx].u16SrcNum; i++)     //遍历要处理的段的每个输入节点
         {
-            for(j = 0; j < pstNnieParam->pstModel->astSeg[pstInputDataIdx->u32SegIdx].u16DstNum; j++)
+            for(j = 0; j < pstNnieParam->pstModel->astSeg[pstInputDataIdx->u32SegIdx].u16DstNum; j++) //遍历输入段的每个输出节点
             {
+                
                 if(0 == strncmp(pstNnieParam->pstModel->astSeg[pstInputDataIdx->u32SegIdx].astDstNode[j].szName,
                     pstNnieParam->pstModel->astSeg[pstProcSegIdx->u32SegIdx].astSrcNode[i].szName,
-                    SVP_NNIE_NODE_NAME_LEN))
+                    SVP_NNIE_NODE_NAME_LEN))  //返回0表示相等
                 {
+                    //如果要处理的第i个节点的输出节点，等于输入段的第j个节点，则将要处理的第i个节点的源节点设置为输入段的第j个节点的源节点
                     pstNnieParam->astSegData[pstProcSegIdx->u32SegIdx].astSrc[i] =
                         pstNnieParam->astSegData[pstInputDataIdx->u32SegIdx].astDst[j];
                     break;
@@ -137,18 +117,23 @@ static HI_S32 SAMPLE_SVP_NNIE_Forward(SAMPLE_SVP_NNIE_PARAM_S *pstNnieParam,
     }
 
     /*NNIE_Forward*/
-    s32Ret = HI_MPI_SVP_NNIE_Forward(&hSvpNnieHandle,
-        pstNnieParam->astSegData[pstProcSegIdx->u32SegIdx].astSrc,
-        pstNnieParam->pstModel, pstNnieParam->astSegData[pstProcSegIdx->u32SegIdx].astDst,
-        &pstNnieParam->astForwardCtrl[pstProcSegIdx->u32SegIdx], bInstant);
+    s32Ret = HI_MPI_SVP_NNIE_Forward(
+        &hSvpNnieHandle,                                                //记录task的句柄
+        pstNnieParam->astSegData[pstProcSegIdx->u32SegIdx].astSrc,      //源节点数组
+        pstNnieParam->pstModel,                                         //模型
+        pstNnieParam->astSegData[pstProcSegIdx->u32SegIdx].astDst,      //目的节点数组
+        &pstNnieParam->astForwardCtrl[pstProcSegIdx->u32SegIdx],        //前向控制信息
+         bInstant);                                                     //及时返回结果标志
     SAMPLE_SVP_CHECK_EXPR_RET(HI_SUCCESS != s32Ret,s32Ret,SAMPLE_SVP_ERR_LEVEL_ERROR,
         "Error,HI_MPI_SVP_NNIE_Forward failed!\n");
 
     if(bInstant)
     {
         /*Wait NNIE finish*/
-        while(HI_ERR_SVP_NNIE_QUERY_TIMEOUT == (s32Ret = HI_MPI_SVP_NNIE_Query(pstNnieParam->astForwardCtrl[pstProcSegIdx->u32SegIdx].enNnieId,
-            hSvpNnieHandle, &bFinish, HI_TRUE)))
+        while(HI_ERR_SVP_NNIE_QUERY_TIMEOUT == (
+            //按照当前处理任务的nnie_id和任务句柄hSvpNnieHandle，查询当前任务是否完成
+            s32Ret = HI_MPI_SVP_NNIE_Query(pstNnieParam->astForwardCtrl[pstProcSegIdx->u32SegIdx].enNnieId,hSvpNnieHandle, &bFinish, HI_TRUE)
+            ))
         {
             usleep(100);
             SAMPLE_SVP_TRACE(SAMPLE_SVP_ERR_LEVEL_INFO,
@@ -157,7 +142,7 @@ static HI_S32 SAMPLE_SVP_NNIE_Forward(SAMPLE_SVP_NNIE_PARAM_S *pstNnieParam,
     }
 
     bFinish = HI_FALSE;
-    for(i = 0; i < pstNnieParam->astForwardCtrl[pstProcSegIdx->u32SegIdx].u32DstNum; i++)
+    for(i = 0; i < pstNnieParam->astForwardCtrl[pstProcSegIdx->u32SegIdx].u32DstNum; i++)       //遍历每个输出节点
     {
         if(SVP_BLOB_TYPE_SEQ_S32 == pstNnieParam->astSegData[pstProcSegIdx->u32SegIdx].astDst[i].enType)
         {
@@ -172,7 +157,7 @@ static HI_S32 SAMPLE_SVP_NNIE_Forward(SAMPLE_SVP_NNIE_PARAM_S *pstNnieParam,
         }
         else
         {
-
+            //刷新输出节点的cache,保证cache与内存一致
             SAMPLE_COMM_SVP_FlushCache(pstNnieParam->astSegData[pstProcSegIdx->u32SegIdx].astDst[i].u64PhyAddr,
                 (HI_VOID *) pstNnieParam->astSegData[pstProcSegIdx->u32SegIdx].astDst[i].u64VirAddr,
                 pstNnieParam->astSegData[pstProcSegIdx->u32SegIdx].astDst[i].u32Num*
@@ -275,6 +260,7 @@ static HI_S32 SAMPLE_SVP_NNIE_ForwardWithBbox(SAMPLE_SVP_NNIE_PARAM_S *pstNniePa
 
 /******************************************************************************
 * function : Fill Src Data
+根据指定的图像路径，将图像读取到预先分配的内存中
 ******************************************************************************/
 static HI_S32 SAMPLE_SVP_NNIE_FillSrcData(SAMPLE_SVP_NNIE_CFG_S* pstNnieCfg,
     SAMPLE_SVP_NNIE_PARAM_S *pstNnieParam, SAMPLE_SVP_NNIE_INPUT_DATA_INDEX_S* pstInputDataIdx)
@@ -286,7 +272,7 @@ static HI_S32 SAMPLE_SVP_NNIE_FillSrcData(SAMPLE_SVP_NNIE_CFG_S* pstNnieCfg,
     HI_S32 s32Ret = HI_SUCCESS;
     HI_U8*pu8PicAddr = NULL;
     HI_U32*pu32StepAddr = NULL;
-    HI_U32 u32SegIdx = pstInputDataIdx->u32SegIdx;
+    HI_U32 u32SegIdx = pstInputDataIdx->u32SegIdx;          //输入数据对应段的索引和
     HI_U32 u32NodeIdx = pstInputDataIdx->u32NodeIdx;
     HI_U32 u32TotalStepNum = 0;
 
@@ -299,6 +285,7 @@ static HI_S32 SAMPLE_SVP_NNIE_FillSrcData(SAMPLE_SVP_NNIE_CFG_S* pstNnieCfg,
     }
 
     /*get data size*/
+    //输入参数类型由wk模型中的参数定
     if(SVP_BLOB_TYPE_U8 <= pstNnieParam->astSegData[u32SegIdx].astSrc[u32NodeIdx].enType &&
         SVP_BLOB_TYPE_YVU422SP >= pstNnieParam->astSegData[u32SegIdx].astSrc[u32NodeIdx].enType)
     {
@@ -332,6 +319,7 @@ static HI_S32 SAMPLE_SVP_NNIE_FillSrcData(SAMPLE_SVP_NNIE_CFG_S* pstNnieCfg,
     }
     else
     {
+        //配置信息都是从wk文件模型中得来，对于8位的图来说加载图像到对应的内存中去
         u32Height = pstNnieParam->astSegData[u32SegIdx].astSrc[u32NodeIdx].unShape.stWhc.u32Height;
         u32Width = pstNnieParam->astSegData[u32SegIdx].astSrc[u32NodeIdx].unShape.stWhc.u32Width;
         u32Chn = pstNnieParam->astSegData[u32SegIdx].astSrc[u32NodeIdx].unShape.stWhc.u32Chn;
@@ -362,23 +350,25 @@ static HI_S32 SAMPLE_SVP_NNIE_FillSrcData(SAMPLE_SVP_NNIE_CFG_S* pstNnieCfg,
             }
         }
         else
-        {
-            for(n = 0; n < pstNnieParam->astSegData[u32SegIdx].astSrc[u32NodeIdx].u32Num; n++)
+        {//u8 类型的图像数据
+
+            for(n = 0; n < pstNnieParam->astSegData[u32SegIdx].astSrc[u32NodeIdx].u32Num; n++)      //遍历batch
             {
                 for(i = 0;i < u32Chn; i++)
                 {
                     for(j = 0; j < u32Height; j++)
                     {
-                        s32Ret = fread(pu8PicAddr,u32Width*u32VarSize,1,fp);
+                        s32Ret = fread(pu8PicAddr,u32Width*u32VarSize,1,fp);        //从fp中读取一行放入pu8PicAddr
                         SAMPLE_SVP_CHECK_EXPR_GOTO(1 != s32Ret,FAIL,SAMPLE_SVP_ERR_LEVEL_ERROR,"Error,Read image file failed!\n");
                         pu8PicAddr += u32Stride;
                     }
                 }
             }
         }
+        //刷新cache,输入物理地址、虚拟地址、刷新内存大小
         SAMPLE_COMM_SVP_FlushCache(pstNnieParam->astSegData[u32SegIdx].astSrc[u32NodeIdx].u64PhyAddr,
             (HI_VOID *) pstNnieParam->astSegData[u32SegIdx].astSrc[u32NodeIdx].u64VirAddr,
-            pstNnieParam->astSegData[u32SegIdx].astSrc[u32NodeIdx].u32Num*u32Chn*u32Height*u32Stride);
+            pstNnieParam->astSegData[u32SegIdx].astSrc[u32NodeIdx].u32Num*u32Chn*u32Height*u32Stride);  //刷新内存大小位n*c*h*w
     }
 
     fclose(fp);
@@ -2802,6 +2792,7 @@ static HI_S32 SAMPLE_SVP_NNIE_Yolov3_Deinit(SAMPLE_SVP_NNIE_PARAM_S *pstNniePara
 
 /******************************************************************************
 * function : Yolov3 software para init
+初始化软件参数
 ******************************************************************************/
 static HI_S32 SAMPLE_SVP_NNIE_Yolov3_SoftwareInit(SAMPLE_SVP_NNIE_CFG_S* pstCfg,
     SAMPLE_SVP_NNIE_PARAM_S *pstNnieParam, SAMPLE_SVP_NNIE_YOLOV3_SOFTWARE_PARAM_S* pstSoftWareParam)
@@ -2816,19 +2807,24 @@ static HI_S32 SAMPLE_SVP_NNIE_Yolov3_SoftwareInit(SAMPLE_SVP_NNIE_CFG_S* pstCfg,
     HI_U64 u64PhyAddr = 0;
     HI_U8* pu8VirAddr = NULL;
 
-    pstSoftWareParam->u32OriImHeight = pstNnieParam->astSegData[0].astSrc[0].unShape.stWhc.u32Height;
+    pstSoftWareParam->u32OriImHeight = pstNnieParam->astSegData[0].astSrc[0].unShape.stWhc.u32Height;   //输入图像的大小
     pstSoftWareParam->u32OriImWidth = pstNnieParam->astSegData[0].astSrc[0].unShape.stWhc.u32Width;
     pstSoftWareParam->u32BboxNumEachGrid = 3;
     pstSoftWareParam->u32ClassNum = 80;
+    //3个尺度feature map 大小 13*13 26*26 52*52
     pstSoftWareParam->au32GridNumHeight[0] = 13;
     pstSoftWareParam->au32GridNumHeight[1] = 26;
     pstSoftWareParam->au32GridNumHeight[2] = 52;
     pstSoftWareParam->au32GridNumWidth[0] = 13;
     pstSoftWareParam->au32GridNumWidth[1] = 26;
     pstSoftWareParam->au32GridNumWidth[2] = 52;
-    pstSoftWareParam->u32NmsThresh = (HI_U32)(0.3f*SAMPLE_SVP_NNIE_QUANT_BASE);
-    pstSoftWareParam->u32ConfThresh = (HI_U32)(0.5f*SAMPLE_SVP_NNIE_QUANT_BASE);
-    pstSoftWareParam->u32MaxRoiNum = 10;
+
+    
+    pstSoftWareParam->u32NmsThresh = (HI_U32)(0.3f*SAMPLE_SVP_NNIE_QUANT_BASE);         //非极大值抑制过程中，如果iOu大于这个值，就抑制
+    pstSoftWareParam->u32ConfThresh = (HI_U32)(0.5f*SAMPLE_SVP_NNIE_QUANT_BASE);        //小于该阈值则不认为是目标
+    pstSoftWareParam->u32MaxRoiNum = 10;                                                //nms后最多输出目标框的个数
+
+    //3个尺度上，3中anchor的w,h
     pstSoftWareParam->af32Bias[0][0] = 116;
     pstSoftWareParam->af32Bias[0][1] = 90;
     pstSoftWareParam->af32Bias[0][2] = 156;
@@ -2849,15 +2845,22 @@ static HI_S32 SAMPLE_SVP_NNIE_Yolov3_SoftwareInit(SAMPLE_SVP_NNIE_CFG_S* pstCfg,
     pstSoftWareParam->af32Bias[2][5] = 23;
 
     /*Malloc assist buffer memory*/
-    u32ClassNum = pstSoftWareParam->u32ClassNum+1;
-
+    u32ClassNum = pstSoftWareParam->u32ClassNum+1;      //dx dy dw dh obj
+    //检查输出blob个数，与设定值3是否相等
     SAMPLE_SVP_CHECK_EXPR_RET(SAMPLE_SVP_NNIE_YOLOV3_REPORT_BLOB_NUM != pstNnieParam->pstModel->astSeg[0].u16DstNum,
         HI_FAILURE,SAMPLE_SVP_ERR_LEVEL_ERROR,"Error,pstNnieParam->pstModel->astSeg[0].u16DstNum(%d) should be %d!\n",
         pstNnieParam->pstModel->astSeg[0].u16DstNum,SAMPLE_SVP_NNIE_YOLOV3_REPORT_BLOB_NUM);
+
+   //计算所有bbox做快排需要堆栈空间，以及所有bbox存储需要的内存空间， blob的临时空间（3个blob中的最大值），返回这3项内存总和
     u32TmpBufTotalSize = SAMPLE_SVP_NNIE_Yolov3_GetResultTmpBuf(pstNnieParam,pstSoftWareParam);
+    //ROI 坐标内存
     u32DstRoiSize = SAMPLE_SVP_NNIE_ALIGN16(u32ClassNum*pstSoftWareParam->u32MaxRoiNum*sizeof(HI_U32)*SAMPLE_SVP_NNIE_COORDI_NUM);
+    //ROI score内存
     u32DstScoreSize = SAMPLE_SVP_NNIE_ALIGN16(u32ClassNum*pstSoftWareParam->u32MaxRoiNum*sizeof(HI_U32));
+    //ROI个数所需要的内存
     u32ClassRoiNumSize = SAMPLE_SVP_NNIE_ALIGN16(u32ClassNum*sizeof(HI_U32));
+
+    //计算总的内存，并分配
     u32TotalSize = u32TotalSize+u32DstRoiSize+u32DstScoreSize+u32ClassRoiNumSize+u32TmpBufTotalSize;
     s32Ret = SAMPLE_COMM_SVP_MallocCached("SAMPLE_YOLOV3_INIT",NULL,(HI_U64*)&u64PhyAddr,
         (void**)&pu8VirAddr,u32TotalSize);
@@ -2865,6 +2868,8 @@ static HI_S32 SAMPLE_SVP_NNIE_Yolov3_SoftwareInit(SAMPLE_SVP_NNIE_CFG_S* pstCfg,
         "Error,Malloc memory failed!\n");
     memset(pu8VirAddr,0, u32TotalSize);
     SAMPLE_COMM_SVP_FlushCache(u64PhyAddr,(void*)pu8VirAddr,u32TotalSize);
+
+
 
    /*set each tmp buffer addr*/
     pstSoftWareParam->stGetResultTmpBuf.u64PhyAddr = u64PhyAddr;
@@ -2876,9 +2881,9 @@ static HI_S32 SAMPLE_SVP_NNIE_Yolov3_SoftwareInit(SAMPLE_SVP_NNIE_CFG_S* pstCfg,
     pstSoftWareParam->stDstRoi.u64VirAddr = (HI_U64)(pu8VirAddr+u32TmpBufTotalSize);
     pstSoftWareParam->stDstRoi.u32Stride = SAMPLE_SVP_NNIE_ALIGN16(u32ClassNum*
         pstSoftWareParam->u32MaxRoiNum*sizeof(HI_U32)*SAMPLE_SVP_NNIE_COORDI_NUM);
-    pstSoftWareParam->stDstRoi.u32Num = 1;
+    pstSoftWareParam->stDstRoi.u32Num = 1;                      //batch_size
     pstSoftWareParam->stDstRoi.unShape.stWhc.u32Chn = 1;
-    pstSoftWareParam->stDstRoi.unShape.stWhc.u32Height = 1;
+    pstSoftWareParam->stDstRoi.unShape.stWhc.u32Height = 1;     //所有的roi认为看做一个行向量
     pstSoftWareParam->stDstRoi.unShape.stWhc.u32Width = u32ClassNum*
         pstSoftWareParam->u32MaxRoiNum*SAMPLE_SVP_NNIE_COORDI_NUM;
 
@@ -2909,17 +2914,26 @@ static HI_S32 SAMPLE_SVP_NNIE_Yolov3_SoftwareInit(SAMPLE_SVP_NNIE_CFG_S* pstCfg,
 
 /******************************************************************************
 * function : Yolov3 init
+
+SAMPLE_SVP_NNIE_CFG_S* pstCfg,               //NNIE推理配置信息（输入前已设置）
+SAMPLE_SVP_NNIE_PARAM_S *pstNnieParam, 
+SAMPLE_SVP_NNIE_YOLOV3_SOFTWARE_PARAM_S* pstSoftWareParam
+
+
 ******************************************************************************/
 static HI_S32 SAMPLE_SVP_NNIE_Yolov3_ParamInit(SAMPLE_SVP_NNIE_CFG_S* pstCfg,
     SAMPLE_SVP_NNIE_PARAM_S *pstNnieParam, SAMPLE_SVP_NNIE_YOLOV3_SOFTWARE_PARAM_S* pstSoftWareParam)
 {
     HI_S32 s32Ret = HI_SUCCESS;
     /*init hardware para*/
+   // 初始化NNIE硬件参数
+    //根据内存中wk网络模型，计算前向推理需要的tmpbuf,taskbuf，每个段的输入输出blob占用的内存大小
+    //并为他们分配内存空间，将内存空间挂载到参数模型对应地址变量上
     s32Ret = SAMPLE_COMM_SVP_NNIE_ParamInit(pstCfg,pstNnieParam);
     SAMPLE_SVP_CHECK_EXPR_GOTO(HI_SUCCESS != s32Ret,INIT_FAIL_0,SAMPLE_SVP_ERR_LEVEL_ERROR,
         "Error(%#x),SAMPLE_COMM_SVP_NNIE_ParamInit failed!\n",s32Ret);
 
-    /*init software para*/
+    /*init software para，初始化软件参数*/
     s32Ret = SAMPLE_SVP_NNIE_Yolov3_SoftwareInit(pstCfg,pstNnieParam,
         pstSoftWareParam);
     SAMPLE_SVP_CHECK_EXPR_GOTO(HI_SUCCESS != s32Ret,INIT_FAIL_0,SAMPLE_SVP_ERR_LEVEL_ERROR,
@@ -2946,13 +2960,13 @@ void SAMPLE_SVP_NNIE_Yolov3(void)
     HI_U32 u32PicNum = 1;
     HI_FLOAT f32PrintResultThresh = 0.0f;
     HI_S32 s32Ret = HI_SUCCESS;
-    SAMPLE_SVP_NNIE_CFG_S   stNnieCfg = {0};
+    SAMPLE_SVP_NNIE_CFG_S   stNnieCfg = {0};        //NNIE推理配置信息
     SAMPLE_SVP_NNIE_INPUT_DATA_INDEX_S stInputDataIdx = {0};
     SAMPLE_SVP_NNIE_PROCESS_SEG_INDEX_S stProcSegIdx = {0};
 
     /*时间测试*/
     struct timespec start,end;
-    float t_sum =0,t=0;
+    float t_sum =0;
 
 
 
@@ -2976,38 +2990,35 @@ void SAMPLE_SVP_NNIE_Yolov3(void)
 
     /*Yolov3 Load model*/
     SAMPLE_SVP_TRACE_INFO("Yolov3 Load model!\n");
-#ifdef TEST_TIME
-t= TimeStatistic(&start, &end,0,"SAMPLE_COMM_SVP_NNIE_LoadModel");  
-#endif
-    s32Ret = SAMPLE_COMM_SVP_NNIE_LoadModel(pcModelName,&s_stYolov3Model);
+    t_sum+=TimeStart(&start, &end,"SAMPLE_COMM_SVP_NNIE_LoadModel");  
+
+    s32Ret = SAMPLE_COMM_SVP_NNIE_LoadModel(pcModelName,&s_stYolov3Model);      //从wk文件中加载模型，所有模型信息都存储在s_stYolov3Model全局变量中
     SAMPLE_SVP_CHECK_EXPR_GOTO(HI_SUCCESS != s32Ret,YOLOV3_FAIL_0,SAMPLE_SVP_ERR_LEVEL_ERROR,
         "Error,SAMPLE_COMM_SVP_NNIE_LoadModel failed!\n");
 
-#ifdef TEST_TIME
-t= TimeStatistic(&start, &end,1,"SAMPLE_COMM_SVP_NNIE_LoadModel"); 
-t_sum+=t;
-#endif       
+    t_sum+= TimeStop(&start, &end,"SAMPLE_COMM_SVP_NNIE_LoadModel"); 
+    
+    
     
   
 
- 
+    /*配置网络模型的软件参数*/
     /*Yolov3 parameter initialization*/
     /*Yolov3 software parameters are set in SAMPLE_SVP_NNIE_Yolov3_SoftwareInit,
       if user has changed net struct, please make sure the parameter settings in
       SAMPLE_SVP_NNIE_Yolov3_SoftwareInit function are correct*/
     SAMPLE_SVP_TRACE_INFO("Yolov3 parameter initialization!\n");
-#ifdef TEST_TIME
-t= TimeStatistic(&start, &end,0,"SAMPLE_SVP_NNIE_Yolov3_ParamInit");  
-#endif
-    s_stYolov3NnieParam.pstModel = &s_stYolov3Model.stModel;
+ 
+    t_sum+=TimeStart(&start, &end,"SAMPLE_SVP_NNIE_Yolov3_ParamInit"); 
+    s_stYolov3NnieParam.pstModel = &s_stYolov3Model.stModel;        //内存中的网络模型，挂载到nnie参数模型上
+    //模型硬件参数，软件参数初始化，内存分配
     s32Ret = SAMPLE_SVP_NNIE_Yolov3_ParamInit(&stNnieCfg,&s_stYolov3NnieParam,&s_stYolov3SoftwareParam);
     SAMPLE_SVP_CHECK_EXPR_GOTO(HI_SUCCESS != s32Ret,YOLOV3_FAIL_0,SAMPLE_SVP_ERR_LEVEL_ERROR,
         "Error,SAMPLE_SVP_NNIE_Yolov3_ParamInit failed!\n");
 
-#ifdef TEST_TIME
-t= TimeStatistic(&start, &end,1,"SAMPLE_SVP_NNIE_Yolov3_ParamInit"); 
-t_sum+=t;
-#endif
+
+    t_sum+=TimeStop(&start, &end,"SAMPLE_SVP_NNIE_Yolov3_ParamInit"); 
+    
 
 
 
@@ -3015,37 +3026,34 @@ t_sum+=t;
 
     /*Fill src data*/
     SAMPLE_SVP_TRACE_INFO("Yolov3 start!\n");
-#ifdef TEST_TIME
-t= TimeStatistic(&start, &end,0,"SAMPLE_SVP_NNIE_FillSrcData");  
-#endif
+
+   t_sum+=TimeStart(&start, &end,"SAMPLE_SVP_NNIE_FillSrcData"); 
+    //设置输入数据段的id，节点id，根据指定的图像路径，将图像读取到预先分配的内存中
     stInputDataIdx.u32SegIdx = 0;
     stInputDataIdx.u32NodeIdx = 0;
     s32Ret = SAMPLE_SVP_NNIE_FillSrcData(&stNnieCfg,&s_stYolov3NnieParam,&stInputDataIdx);
     SAMPLE_SVP_CHECK_EXPR_GOTO(HI_SUCCESS != s32Ret,YOLOV3_FAIL_0,SAMPLE_SVP_ERR_LEVEL_ERROR,
         "Error,SAMPLE_SVP_NNIE_FillSrcData failed!\n");
-#ifdef TEST_TIME
- t= TimeStatistic(&start, &end,1,"SAMPLE_SVP_NNIE_FillSrcData"); 
-t_sum+=t;
-#endif
+
+    t_sum+=TimeStop(&start, &end,"SAMPLE_SVP_NNIE_FillSrcData"); 
+   
 
 
-#ifdef TEST_TIME
-t= TimeStatistic(&start, &end,0,"SAMPLE_SVP_NNIE_Forward");  
-#endif 
+
+    t_sum+=TimeStart(&start, &end,"SAMPLE_SVP_NNIE_Forward");
     /*NNIE process(process the 0-th segment)*/
+    //执行某一段的前向传播，按照输入段和处理段索引构成段与段之间的链接关系，前向传播后及时刷新输出cache
     stProcSegIdx.u32SegIdx = 0;
     s32Ret = SAMPLE_SVP_NNIE_Forward(&s_stYolov3NnieParam,&stInputDataIdx,&stProcSegIdx,HI_TRUE);
     SAMPLE_SVP_CHECK_EXPR_GOTO(HI_SUCCESS != s32Ret,YOLOV3_FAIL_0,SAMPLE_SVP_ERR_LEVEL_ERROR,
         "Error,SAMPLE_SVP_NNIE_Forward failed!\n");
-#ifdef TEST_TIME
- t= TimeStatistic(&start, &end,1,"SAMPLE_SVP_NNIE_Forward"); 
-t_sum+=t;
-#endif
+
+    t_sum+=TimeStop(&start, &end,"SAMPLE_SVP_NNIE_Forward"); 
+     
 
 
-#ifdef TEST_TIME
-t= TimeStatistic(&start, &end,0,"SAMPLE_SVP_NNIE_Yolov3_GetResult");  
-#endif 
+
+    t_sum+=TimeStart(&start, &end,"SAMPLE_SVP_NNIE_Yolov3_GetResult"); 
     /*Software process*/
     /*if user has changed net struct, please make sure SAMPLE_SVP_NNIE_Yolov3_GetResult
      function input datas are correct*/
@@ -3053,10 +3061,10 @@ t= TimeStatistic(&start, &end,0,"SAMPLE_SVP_NNIE_Yolov3_GetResult");
     SAMPLE_SVP_CHECK_EXPR_GOTO(HI_SUCCESS != s32Ret,YOLOV3_FAIL_0,SAMPLE_SVP_ERR_LEVEL_ERROR,
         "Error,SAMPLE_SVP_NNIE_Yolov3_GetResult failed!\n");
 
-#ifdef TEST_TIME
- t= TimeStatistic(&start, &end,1,"SAMPLE_SVP_NNIE_Yolov3_GetResult"); 
-t_sum+=t;
-#endif
+
+    t_sum+=TimeStop(&start, &end,"SAMPLE_SVP_NNIE_Yolov3_GetResult"); 
+    
+
 
      /*print result, this sample has 81 classes:
       class 0:background      class 1:person       class 2:bicycle         class 3:car            class 4:motorbike      class 5:aeroplane

@@ -1,5 +1,5 @@
 
-all: linux lite linuxclean liteclean linux_svp
+all: linux lite linuxclean liteclean linux_svp svp_clean
 
 linux:
 	cp ../cfg.mak.multicore ../cfg.mak
@@ -26,10 +26,14 @@ linux:
 	@cd pciv; make slave
 
 linux_svp:
-	#使用cfg.mak.multicore 的参数配置编译环境
+	#只编译svp
 	cp ../cfg.mak.multicore ../cfg.mak
 	@cd svp/multi-core; make
 
+nnie_clean:
+	#只清空nnie的编译
+	cp ../cfg.mak.multicore ../cfg.mak
+	@cd svp/multi-core/nnie; make clean
 
 linuxclean:
 	cp ../cfg.mak.multicore ../cfg.mak

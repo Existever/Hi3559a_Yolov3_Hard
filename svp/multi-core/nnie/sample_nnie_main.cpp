@@ -8,10 +8,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
-
 #include "sample_nnie_main.h"
-
-
 #include<iostream>
 #include<opencv2/opencv.hpp>   
 

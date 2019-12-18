@@ -1,5 +1,6 @@
 #include"sample_svp_nnie_software.h"
 #include <math.h>
+#include "debug_comm.h"
 
 #ifdef __cplusplus    // If used by C++ code,
 extern "C" {          // we need to export the C interface
@@ -40,7 +41,7 @@ static HI_FLOAT s_af32ExpCoef[10][16] = {
 *****************************************************************************/
 static HI_FLOAT SVP_NNIE_QuickExp( HI_S32 s32Value )
 {
-    if( s32Value & 0x80000000 )
+    if( s32Value & 0x80000000 )     //如果输入为负数
     {
         s32Value = ~s32Value + 0x00000001;
         return s_af32ExpCoef[5][s32Value & 0x0000000F] * s_af32ExpCoef[6][(s32Value>>4) & 0x0000000F] * s_af32ExpCoef[7][(s32Value>>8) & 0x0000000F] * s_af32ExpCoef[8][(s32Value>>12) & 0x0000000F] * s_af32ExpCoef[9][(s32Value>>16) & 0x0000000F ];
@@ -88,13 +89,14 @@ static HI_S32 SVP_NNIE_SoftMax( HI_FLOAT* pf32Src, HI_U32 u32Num)
 
     for(i = 0; i < u32Num; ++i)
     {
-        pf32Src[i] = (HI_FLOAT)SVP_NNIE_QuickExp((HI_S32)((pf32Src[i] - f32Max)*SAMPLE_SVP_NNIE_QUANT_BASE));
+         //这里用计算softmax用差值exp(x-xmax)计算，防止exp(x)过大，同时乘以量化基底，使用查找表的的方式计算exp
+        pf32Src[i] = (HI_FLOAT)SVP_NNIE_QuickExp((HI_S32)((pf32Src[i] - f32Max)*SAMPLE_SVP_NNIE_QUANT_BASE));  
         f32Sum += pf32Src[i];
     }
 
     for(i = 0; i < u32Num; ++i)
     {
-        pf32Src[i] /= f32Sum;
+        pf32Src[i] /= f32Sum;       //除以总和，得到softmax值
     }
     return HI_SUCCESS;
 }
@@ -1928,7 +1930,7 @@ static void SVP_NNIE_Yolov1_Argswap(HI_S32* ps32Src1, HI_S32* ps32Src2,
 *             HI_S32   s32Low             [IN] the start position of quick sort
 *             HI_S32   s32High            [IN] the end position of quick sort
 *             HI_U32   u32ArraySize       [IN] the element size of input array
-*             HI_U32   u32ScoreIdx        [IN] the score index in array element
+*             HI_U32   u32ScoreIdx        [IN] the score index in array element，例如数组中一个元素为【x1,y1,x2,y2,obj,mask,cls】,则这里u32ScoreIdx=4
 *             SAMPLE_SVP_NNIE_STACK_S *pstStack [IN] the buffer used to store start positions and end positions
 *
 * Output :
@@ -1942,6 +1944,7 @@ static void SVP_NNIE_Yolov1_Argswap(HI_S32* ps32Src1, HI_S32* ps32Src2,
 * Author :
 * Modification : Create
 *
+非递归的方式实现从大到小排序
 *****************************************************************************/
 static HI_S32 SVP_NNIE_Yolo_NonRecursiveArgQuickSort(HI_S32* ps32Array,
     HI_S32 s32Low, HI_S32 s32High, HI_U32 u32ArraySize,HI_U32 u32ScoreIdx,
@@ -1953,7 +1956,7 @@ static HI_S32 SVP_NNIE_Yolo_NonRecursiveArgQuickSort(HI_S32* ps32Array,
     HI_S32 s32KeyConfidence = ps32Array[u32ArraySize * s32Low + u32ScoreIdx];
     pstStack[s32Top].s32Min = s32Low;
     pstStack[s32Top].s32Max = s32High;
-
+    //类似快排的思路，认为low执行的永远是最大值，不满足则交换
     while(s32Top > -1)
     {
         s32Low = pstStack[s32Top].s32Min;
@@ -1962,7 +1965,7 @@ static HI_S32 SVP_NNIE_Yolo_NonRecursiveArgQuickSort(HI_S32* ps32Array,
         j = s32High;
         s32Top--;
 
-        s32KeyConfidence = ps32Array[u32ArraySize * s32Low + u32ScoreIdx];
+        s32KeyConfidence = ps32Array[u32ArraySize * s32Low + u32ScoreIdx];      //认为数轴永远指向最大值，不满足则交换
 
         while(i < j)
         {
@@ -2003,6 +2006,33 @@ static HI_S32 SVP_NNIE_Yolo_NonRecursiveArgQuickSort(HI_S32* ps32Array,
     }
     return HI_SUCCESS;
 }
+
+/*****************************************************************************
+* Prototype :   SVP_NNIE_Yolov1_NonRecursiveArgQuickSort
+* Description : this function is used to do quick sort
+* Input :     HI_S32*  ps32Array          [IN] the array need to be sorted
+*             HI_S32   s32Low             [IN] the start position of quick sort
+*             HI_S32   s32High            [IN] the end position of quick sort
+*             HI_U32   u32ArraySize       [IN] the element size of input array
+*             HI_U32   u32ScoreIdx        [IN] the score index in array element，例如数组中一个元素为【x1,y1,x2,y2,obj,mask,cls】,则这里u32ScoreIdx=4
+*             SAMPLE_SVP_NNIE_STACK_S *pstStack [IN] the buffer used to store start positions and end positions
+*
+
+
+*****************************************************************************/
+static HI_U32 SVP_NNIE_Yolo_OnlyTop1(SAMPLE_SVP_NNIE_YOLOV3_BBOX_S*pstBbox, HI_U32 u32num)
+{
+    HI_U32 i=0,idx=0;
+    HI_S32 s32MaxScore=pstBbox[0].s32ClsScore;
+    for(i=0;i<u32num;i++){
+        if(pstBbox[i].s32ClsScore>s32MaxScore){
+            s32MaxScore = pstBbox[i].s32ClsScore;
+            idx =i;
+        }
+    } 
+    return idx;
+}
+
 
 
 /*****************************************************************************
@@ -2279,7 +2309,7 @@ static HI_S32 SVP_NNIE_Yolov2_NonMaxSuppression( SAMPLE_SVP_NNIE_YOLOV2_BBOX_S* 
     {
         if(pstBbox[i].u32Mask == 0 )
         {
-            u32Num++;
+            u32Num++;                   //第i个框保留，后面通过iou的方式决定是否抑制
             for(j= i+1;j< u32BboxNum; j++)
             {
                 if( pstBbox[j].u32Mask == 0 )
@@ -2287,7 +2317,7 @@ static HI_S32 SVP_NNIE_Yolov2_NonMaxSuppression( SAMPLE_SVP_NNIE_YOLOV2_BBOX_S* 
                     f64Iou = SVP_NNIE_Yolov2_Iou(&pstBbox[i],&pstBbox[j]);
                     if(f64Iou >= (HI_DOUBLE)u32NmsThresh/SAMPLE_SVP_NNIE_QUANT_BASE)
                     {
-                        pstBbox[j].u32Mask = 1;
+                        pstBbox[j].u32Mask = 1;         //如果iou大于阈值，则抑制
                     }
                 }
             }
@@ -2542,6 +2572,7 @@ static HI_S32 SVP_NNIE_Yolov3_GetResult(HI_S32 **pps32InputData,HI_U32 au32GridN
     HI_U32 u32BlobSize = 0;
     HI_U32 u32MaxBlobSize = 0;
 
+    //计算不同尺度blobsize的最大值
     for(i = 0; i < SAMPLE_SVP_NNIE_YOLOV3_REPORT_BLOB_NUM; i++)
     {
         u32BlobSize = au32GridNumWidth[i]*au32GridNumHeight[i]*sizeof(HI_U32)*
@@ -2551,78 +2582,115 @@ static HI_S32 SVP_NNIE_Yolov3_GetResult(HI_S32 **pps32InputData,HI_U32 au32GridN
             u32MaxBlobSize = u32BlobSize;
         }
     }
-
+    //计算不同尺度上bbox的总个数
     for(i = 0; i < SAMPLE_SVP_NNIE_YOLOV3_REPORT_BLOB_NUM; i++)
     {
         u32TotalBboxNum += au32GridNumWidth[i]*au32GridNumHeight[i]*u32EachGridBbox;
     }
 
-    //get each tmpbuf addr
+    //get each tmpbuf addr，计算临时空间的地址
     pf32Permute = (HI_FLOAT*)ps32TmpBuf;
     pstBbox = (SAMPLE_SVP_NNIE_YOLOV3_BBOX_S*)(pf32Permute+u32MaxBlobSize/sizeof(HI_S32));
     ps32AssistBuf = (HI_S32*)(pstBbox+u32TotalBboxNum);
 
+
+      /*时间测试*/
+    struct timespec start,end;
+    float t_sum =0;
+
+
+    //遍历每个输出尺度的blob
     for(i = 0; i < SAMPLE_SVP_NNIE_YOLOV3_REPORT_BLOB_NUM; i++)
     {
         //permute
         u32Offset = 0;
         ps32InputBlob = pps32InputData[i];
-        u32ChnOffset = au32GridNumHeight[i]*au32Stride[i]/sizeof(HI_S32);
+        u32ChnOffset = au32GridNumHeight[i]*au32Stride[i]/sizeof(HI_S32);       //stride 是按照字节来定义的，因此除以sizeof(HI_S32)
         u32HeightOffset = au32Stride[i]/sizeof(HI_S32);
+        
+         t_sum+=TimeStart(&start, &end,"Permute");  
+
+        //通道调整从chw-->hwc，并除以量化基底转化为浮点数 
         for (h = 0; h < au32GridNumHeight[i]; h++)
         {
             for (w = 0; w < au32GridNumWidth[i]; w++)
             {
-                for (c = 0; c < SAMPLE_SVP_NNIE_YOLOV3_EACH_BBOX_INFER_RESULT_NUM*u32EachGridBbox; c++)
+                for (c = 0; c < SAMPLE_SVP_NNIE_YOLOV3_EACH_BBOX_INFER_RESULT_NUM*u32EachGridBbox; c++) //遍历255个通道
                 {
-                    pf32Permute[u32Offset++] = (HI_FLOAT)(ps32InputBlob[c*u32ChnOffset+h*u32HeightOffset+w]) / SAMPLE_SVP_NNIE_QUANT_BASE;
+                    pf32Permute[u32Offset++] = (HI_FLOAT)(ps32InputBlob[c*u32ChnOffset+h*u32HeightOffset+w]) / SAMPLE_SVP_NNIE_QUANT_BASE; //除以量化基底转化为浮点数 
                 }
             }
         }
+        t_sum+=TimeStop(&start, &end,"Permute");  
 
+
+        t_sum+=TimeStart(&start, &end,"Decode");  
+
+        
         //decode bbox and calculate score
         for(j = 0; j < au32GridNumWidth[i]*au32GridNumHeight[i]; j++)
         {
-            u32GridXIdx = j % au32GridNumWidth[i];
+            u32GridXIdx = j % au32GridNumWidth[i];          //产生格点左上角的坐标
             u32GridYIdx = j / au32GridNumWidth[i];
             for (k = 0; k < u32EachGridBbox; k++)
             {
                 u32MaxValueIndex = 0;
+                //计算每个格点对应内存中的偏移量
+                //理解逻辑： j*u32EachGridBbox*85 +   K*85                       =（j*u32EachGridBbox+k)*85
+                //          第j个格点的偏移量          第j个节点第k种blob的偏移量       合并起来
                 u32Offset = (j * u32EachGridBbox + k) * SAMPLE_SVP_NNIE_YOLOV3_EACH_BBOX_INFER_RESULT_NUM;
-                //decode bbox
-                f32StartX = ((HI_FLOAT)u32GridXIdx + SAMPLE_SVP_NNIE_SIGMOID(pf32Permute[u32Offset + 0])) / au32GridNumWidth[i];
-                f32StartY = ((HI_FLOAT)u32GridYIdx + SAMPLE_SVP_NNIE_SIGMOID(pf32Permute[u32Offset + 1])) / au32GridNumHeight[i];
-                f32Width = (HI_FLOAT)(exp(pf32Permute[u32Offset + 2]) * af32Bias[i][2*k]) / u32SrcWidth;
-                f32Height = (HI_FLOAT)(exp(pf32Permute[u32Offset + 3]) * af32Bias[i][2*k + 1]) / u32SrcHeight;
+                
+                //decode bbox,解码后的bbox都是归一化到【0,1]之间的
+                f32StartX = ((HI_FLOAT)u32GridXIdx + SAMPLE_SVP_NNIE_SIGMOID(pf32Permute[u32Offset + 0])) / au32GridNumWidth[i];    //x : (gx+sigma(dx))/imgw
+                f32StartY = ((HI_FLOAT)u32GridYIdx + SAMPLE_SVP_NNIE_SIGMOID(pf32Permute[u32Offset + 1])) / au32GridNumHeight[i];   //y : (gy+sigma(dy))/imgh
+                f32Width = (HI_FLOAT)(exp(pf32Permute[u32Offset + 2]) * af32Bias[i][2*k]) / u32SrcWidth;                            //w : exp(dw)*aw/imgw
+                f32Height = (HI_FLOAT)(exp(pf32Permute[u32Offset + 3]) * af32Bias[i][2*k + 1]) / u32SrcHeight;                      //h : exp(dh)*ah/imgh
 
                 //calculate score
-                f32ObjScore = SAMPLE_SVP_NNIE_SIGMOID(pf32Permute[u32Offset + 4]);
-                (void)SVP_NNIE_SoftMax(&pf32Permute[u32Offset + 5], u32ClassNum);
-                f32MaxScore = SVP_NNIE_Yolov2_GetMaxVal(&pf32Permute[u32Offset + 5], u32ClassNum, &u32MaxValueIndex);
-                s32ClassScore = (HI_S32)(f32MaxScore * f32ObjScore*SAMPLE_SVP_NNIE_QUANT_BASE);
+                f32ObjScore = SAMPLE_SVP_NNIE_SIGMOID(pf32Permute[u32Offset + 4]);                                      //目标置信概率
+                (void)SVP_NNIE_SoftMax(&pf32Permute[u32Offset + 5], u32ClassNum);                                       //对类别计算softmax
+                f32MaxScore = SVP_NNIE_Yolov2_GetMaxVal(&pf32Permute[u32Offset + 5], u32ClassNum, &u32MaxValueIndex);   //记录概率最大的类别并获得最大值所在索引
+                s32ClassScore = (HI_S32)(f32MaxScore * f32ObjScore*SAMPLE_SVP_NNIE_QUANT_BASE);                         //概率阈值，转化到量化后再比较
 
                 //filter low score roi
                 if (s32ClassScore > u32ConfThresh)
                 {
-                    pstBbox[u32BboxNum].f32Xmin= (HI_FLOAT)(f32StartX - f32Width * 0.5f);
+                    pstBbox[u32BboxNum].f32Xmin= (HI_FLOAT)(f32StartX - f32Width * 0.5f);           //坐标转化为左上角、右下角的形式
                     pstBbox[u32BboxNum].f32Ymin= (HI_FLOAT)(f32StartY - f32Height * 0.5f);
                     pstBbox[u32BboxNum].f32Xmax= (HI_FLOAT)(f32StartX + f32Width * 0.5f);
                     pstBbox[u32BboxNum].f32Ymax= (HI_FLOAT)(f32StartY + f32Height * 0.5f);
                     pstBbox[u32BboxNum].s32ClsScore = s32ClassScore;
                     pstBbox[u32BboxNum].u32Mask= 0;
-                    pstBbox[u32BboxNum].u32ClassIdx = (HI_S32)(u32MaxValueIndex+1);
+                    pstBbox[u32BboxNum].u32ClassIdx = (HI_S32)(u32MaxValueIndex+1);                 //类别号从1开始计数
                     u32BboxNum++;
                 }
             }
         }
+
+        t_sum+=TimeStop(&start, &end,"Decode"); 
     }
 
+//测试只找一个最大概率的目标的时候时间
+// #define ONLY_TOP_ONE_BBOX       
+#ifdef ONLY_TOP_ONE_BBOX
+
+    HI_U32 u32TopIdx = SVP_NNIE_Yolo_OnlyTop1(pstBbox,  u32BboxNum);
+    *(ps32DstRoi++) = SAMPLE_SVP_NNIE_MAX((HI_S32)(pstBbox[u32TopIdx].f32Xmin*u32SrcWidth), 0);                     //输出坐标转化到输入图像的分辨率的坐标系下
+    *(ps32DstRoi++) = SAMPLE_SVP_NNIE_MAX((HI_S32)(pstBbox[u32TopIdx].f32Ymin*u32SrcHeight), 0);
+    *(ps32DstRoi++) = SAMPLE_SVP_NNIE_MIN((HI_S32)(pstBbox[u32TopIdx].f32Xmax*u32SrcWidth), u32SrcWidth);
+    *(ps32DstRoi++) = SAMPLE_SVP_NNIE_MIN((HI_S32)(pstBbox[u32TopIdx].f32Ymax*u32SrcHeight), u32SrcHeight);
+    *(ps32DstScore++) = pstBbox[u32TopIdx].s32ClsScore;
+    
+#else
+
+    t_sum+=TimeStart(&start, &end,"NMS");  
     //quick sort
     (void)SVP_NNIE_Yolo_NonRecursiveArgQuickSort((HI_S32*)pstBbox, 0, u32BboxNum - 1,
         sizeof(SAMPLE_SVP_NNIE_YOLOV3_BBOX_S)/sizeof(HI_U32),4,(SAMPLE_SVP_NNIE_STACK_S*)ps32AssistBuf);
 
     //Yolov3 and Yolov2 have the same Nms operation
-    (void)SVP_NNIE_Yolov2_NonMaxSuppression(pstBbox, u32BboxNum, u32NmsThresh, sizeof(SAMPLE_SVP_NNIE_YOLOV3_BBOX_S)/sizeof(HI_U32));
+    //(void)SVP_NNIE_Yolov2_NonMaxSuppression(pstBbox, u32BboxNum, u32NmsThresh, sizeof(SAMPLE_SVP_NNIE_YOLOV3_BBOX_S)/sizeof(HI_U32)); //原始代码，最后一个参数笔误了吧
+     (void)SVP_NNIE_Yolov2_NonMaxSuppression(pstBbox, u32BboxNum, u32NmsThresh, u32MaxRoiNum);      //最多只做u32MaxRoiNum轮nms,也就是说最后剩下的剩下box的个数多余u32MaxRoiNum个
 
     //Get result
     for (i = 1; i < u32ClassNum; i++)
@@ -2630,9 +2698,9 @@ static HI_S32 SVP_NNIE_Yolov3_GetResult(HI_S32 **pps32InputData,HI_U32 au32GridN
         u32ClassRoiNum = 0;
         for(j = 0; j < u32BboxNum; j++)
         {
-            if ((0 == pstBbox[j].u32Mask) && (i == pstBbox[j].u32ClassIdx) && (u32ClassRoiNum < u32MaxRoiNum))
+            if ((0 == pstBbox[j].u32Mask) && (i == pstBbox[j].u32ClassIdx) && (u32ClassRoiNum < u32MaxRoiNum))      //每个类别的bbox个数也不超过u32MaxRoiNum个
             {
-                *(ps32DstRoi++) = SAMPLE_SVP_NNIE_MAX((HI_S32)(pstBbox[j].f32Xmin*u32SrcWidth), 0);
+                *(ps32DstRoi++) = SAMPLE_SVP_NNIE_MAX((HI_S32)(pstBbox[j].f32Xmin*u32SrcWidth), 0);                     //输出坐标转化到输入图像的分辨率的坐标系下
                 *(ps32DstRoi++) = SAMPLE_SVP_NNIE_MAX((HI_S32)(pstBbox[j].f32Ymin*u32SrcHeight), 0);
                 *(ps32DstRoi++) = SAMPLE_SVP_NNIE_MIN((HI_S32)(pstBbox[j].f32Xmax*u32SrcWidth), u32SrcWidth);
                 *(ps32DstRoi++) = SAMPLE_SVP_NNIE_MIN((HI_S32)(pstBbox[j].f32Ymax*u32SrcHeight), u32SrcHeight);
@@ -2642,6 +2710,10 @@ static HI_S32 SVP_NNIE_Yolov3_GetResult(HI_S32 **pps32InputData,HI_U32 au32GridN
         }
         *(ps32ClassRoiNum+i) = u32ClassRoiNum;
     }
+
+    t_sum+=TimeStop(&start, &end,"NMS");  
+#endif
+  
 
     return HI_SUCCESS;
 }
@@ -3512,6 +3584,7 @@ HI_S32 SAMPLE_SVP_NNIE_Yolov2_GetResult(SAMPLE_SVP_NNIE_PARAM_S*pstNnieParam,
 * Author :
 * Modification : Create
 *
+  //计算所有bbox做快排需要堆栈空间，以及所有bbox存储需要的内存空间， blob的临时空间（3个blob中的最大值），返回这3项内存总和
 *****************************************************************************/
 HI_U32 SAMPLE_SVP_NNIE_Yolov3_GetResultTmpBuf(SAMPLE_SVP_NNIE_PARAM_S*pstNnieParam,
     SAMPLE_SVP_NNIE_YOLOV3_SOFTWARE_PARAM_S* pstSoftwareParam)
@@ -3526,16 +3599,20 @@ HI_U32 SAMPLE_SVP_NNIE_Yolov3_GetResultTmpBuf(SAMPLE_SVP_NNIE_PARAM_S*pstNniePar
 
     for(i = 0; i < pstNnieParam->pstModel->astSeg[0].u16DstNum; i++)
     {
+        //计算输出的各个尺度的blobsize
         u32DstBlobSize = pstNnieParam->pstModel->astSeg[0].astDstNode[i].unShape.stWhc.u32Width*sizeof(HI_U32)*
             pstNnieParam->pstModel->astSeg[0].astDstNode[i].unShape.stWhc.u32Height*
             pstNnieParam->pstModel->astSeg[0].astDstNode[i].unShape.stWhc.u32Chn;
+        //记录最大的blobsize
         if(u32MaxBlobSize < u32DstBlobSize)
         {
             u32MaxBlobSize = u32DstBlobSize;
         }
+        //计算anchorbox的总个数
         u32TotalBboxNum += pstSoftwareParam->au32GridNumWidth[i]*pstSoftwareParam->au32GridNumHeight[i]*
             pstSoftwareParam->u32BboxNumEachGrid;
     }
+    //计算所有bbox做快排需要堆栈空间，以及所有bbox存储需要的内存空间， blob的临时空间（3个blob中的最大值）
     u32AssistStackSize = u32TotalBboxNum*sizeof(SAMPLE_SVP_NNIE_STACK_S);
     u32TotalBboxSize = u32TotalBboxNum*sizeof(SAMPLE_SVP_NNIE_YOLOV3_BBOX_S);
     u32TotalSize += (u32MaxBlobSize+u32AssistStackSize+u32TotalBboxSize);
@@ -3563,12 +3640,14 @@ HI_U32 SAMPLE_SVP_NNIE_Yolov3_GetResultTmpBuf(SAMPLE_SVP_NNIE_PARAM_S*pstNniePar
 * Author :
 * Modification : Create
 *
+ 
+
 *****************************************************************************/
 HI_S32 SAMPLE_SVP_NNIE_Yolov3_GetResult(SAMPLE_SVP_NNIE_PARAM_S*pstNnieParam,
     SAMPLE_SVP_NNIE_YOLOV3_SOFTWARE_PARAM_S* pstSoftwareParam)
 {
     HI_U32 i = 0;
-    HI_S32 *aps32InputBlob[SAMPLE_SVP_NNIE_YOLOV3_REPORT_BLOB_NUM] = {0};
+    HI_S32 *aps32InputBlob[SAMPLE_SVP_NNIE_YOLOV3_REPORT_BLOB_NUM] = {0};       //存储blob的虚拟地址
     HI_U32 au32Stride[SAMPLE_SVP_NNIE_YOLOV3_REPORT_BLOB_NUM] = {0};
 
     for(i = 0; i < SAMPLE_SVP_NNIE_YOLOV3_REPORT_BLOB_NUM; i++)
@@ -3576,12 +3655,20 @@ HI_S32 SAMPLE_SVP_NNIE_Yolov3_GetResult(SAMPLE_SVP_NNIE_PARAM_S*pstNnieParam,
         aps32InputBlob[i] = (HI_S32*)pstNnieParam->astSegData[0].astDst[i].u64VirAddr;
         au32Stride[i] = pstNnieParam->astSegData[0].astDst[i].u32Stride;
     }
-    return SVP_NNIE_Yolov3_GetResult(aps32InputBlob,pstSoftwareParam->au32GridNumWidth,
-        pstSoftwareParam->au32GridNumHeight,au32Stride,pstSoftwareParam->u32BboxNumEachGrid,
-        pstSoftwareParam->u32ClassNum,pstSoftwareParam->u32OriImWidth,
-        pstSoftwareParam->u32OriImWidth,pstSoftwareParam->u32MaxRoiNum,pstSoftwareParam->u32NmsThresh,
-        pstSoftwareParam->u32ConfThresh,pstSoftwareParam->af32Bias,
-        (HI_S32*)pstSoftwareParam->stGetResultTmpBuf.u64VirAddr,
+    return SVP_NNIE_Yolov3_GetResult(
+        aps32InputBlob,                                         //多尺度输出blob地址
+        pstSoftwareParam->au32GridNumWidth,                     //多尺度anchor宽高数组
+        pstSoftwareParam->au32GridNumHeight,
+        au32Stride,                                             //多尺度blob的stride
+        pstSoftwareParam->u32BboxNumEachGrid,
+        pstSoftwareParam->u32ClassNum,                          //类别数
+        pstSoftwareParam->u32OriImWidth,                        //原始图像的分辨率，宽高
+        pstSoftwareParam->u32OriImWidth,
+        pstSoftwareParam->u32MaxRoiNum,                         //输出最多box的个数
+        pstSoftwareParam->u32NmsThresh,                         //NMS阈值
+        pstSoftwareParam->u32ConfThresh,                        //目标置信度阈值
+        pstSoftwareParam->af32Bias,                             //anchor宽高比尺寸
+        (HI_S32*)pstSoftwareParam->stGetResultTmpBuf.u64VirAddr,//辅助内存空间
         (HI_S32*)pstSoftwareParam->stDstScore.u64VirAddr,
         (HI_S32*)pstSoftwareParam->stDstRoi.u64VirAddr,
         (HI_S32*)pstSoftwareParam->stClassRoiNum.u64VirAddr);

@@ -84,3 +84,12 @@ svp/multi-core/hirt/sample_runtime_release
 svp/multi-core/ive/
 
 svp/multi-core/dsp/
+
+svp/multi-core/tmp_include/opencv2/
+
+svp/multi-core/tmp_include/opencv/
+
+
+*.tar 
+*.tar.gz
+
